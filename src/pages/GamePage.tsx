@@ -111,20 +111,27 @@ const GamePage: React.FC = () => {
   // 处理键盘输入
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      switch (e.key) {
-        case 'ArrowUp':
+      e.preventDefault(); // 阻止页面滚动等默认行为
+      
+      switch (e.key.toLowerCase()) {
+        case 'arrowup':
+        case 'w':
           movePlayer(playerPosition.x, playerPosition.y - 1);
           break;
-        case 'ArrowDown':
+        case 'arrowdown':
+        case 's':
           movePlayer(playerPosition.x, playerPosition.y + 1);
           break;
-        case 'ArrowLeft':
+        case 'arrowleft':
+        case 'a':
           movePlayer(playerPosition.x - 1, playerPosition.y);
           break;
-        case 'ArrowRight':
+        case 'arrowright':
+        case 'd':
           movePlayer(playerPosition.x + 1, playerPosition.y);
           break;
-        case ' ': // 空格键放置炸弹
+        case ' ':
+        case 'enter':
           placeBomb();
           break;
       }
@@ -132,7 +139,7 @@ const GamePage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playerPosition, movePlayer]);
+  }, [playerPosition, movePlayer, placeBomb]);
 
   // 敌人AI移动
   useEffect(() => {
@@ -188,7 +195,7 @@ const GamePage: React.FC = () => {
   }, [map, navigate]);
 
   // 放置炸弹
-  const placeBomb = () => {
+  const placeBomb = useCallback(() => {
     const newMap = map.map(row => [...row]);
     newMap[playerPosition.y][playerPosition.x] = 'bomb';
     setMap(newMap);
@@ -196,11 +203,15 @@ const GamePage: React.FC = () => {
     // 播放放置炸弹音效
     audioManager.playSound('bomb');
 
+    // 保存爆炸位置到闭包中，避免使用过时的playerPosition
+    const explodeX = playerPosition.x;
+    const explodeY = playerPosition.y;
+    
     // 3秒后爆炸
     setTimeout(() => {
-      explodeBomb(playerPosition.x, playerPosition.y);
+      explodeBomb(explodeX, explodeY);
     }, 3000);
-  };
+  }, [map, playerPosition]);
 
   // 炸弹爆炸
   const explodeBomb = (x: number, y: number) => {
@@ -303,6 +314,13 @@ const GamePage: React.FC = () => {
           <div>炸弹: {playerStats.bombs}</div>
           <div>火焰: {playerStats.flameLength}</div>
           <div>速度: {playerStats.speed}</div>
+        </div>
+        
+        {/* 键盘控制提示 */}
+        <div className="mt-4 w-full text-center text-sm text-gray-400 bg-gray-700 rounded p-3">
+          <p className="font-bold mb-1">键盘控制</p>
+          <p>↑ ↓ ← → 或 W A S D - 移动</p>
+          <p>空格 或 Enter - 放置炸弹</p>
         </div>
       </div>
       
