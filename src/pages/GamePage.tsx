@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GameMap from '../components/GameMap';
 import { audioManager } from '../utils/audioManager';
@@ -43,9 +43,6 @@ const GamePage: React.FC = () => {
     speed: 1        // 移动速度
   });
 
-  // 移动方向
-  const [direction, setDirection] = useState<'up' | 'down' | 'left' | 'right' | null>(null);
-
   // 加载音频
   useEffect(() => {
     // 加载音效
@@ -64,16 +61,16 @@ const GamePage: React.FC = () => {
   }, []);
 
   // 检查移动是否有效
-  const canMove = useCallback((x: number, y: number): boolean => {
+  const canMove = (x: number, y: number): boolean => {
     if (x < 0 || x >= map[0].length || y < 0 || y >= map.length) {
       return false;
     }
     const cell = map[y][x];
     return cell === 'empty' || cell === 'item';
-  }, [map]);
+  };
 
   // 移动玩家
-  const movePlayer = useCallback((newX: number, newY: number) => {
+  const movePlayer = (newX: number, newY: number) => {
     if (!canMove(newX, newY)) return;
 
     // 创建新地图
@@ -106,7 +103,115 @@ const GamePage: React.FC = () => {
     // 更新状态
     setMap(newMap);
     setPlayerPosition({ x: newX, y: newY });
-  }, [map, playerPosition, canMove]);
+  };
+
+  // 炸弹爆炸
+  const explodeBomb = (x: number, y: number) => {
+    const currentMap = map;
+    const newMap = currentMap.map(row => [...row]);
+    
+    // 清除炸弹
+    newMap[y][x] = 'empty';
+    
+    // 播放爆炸音效
+    audioManager.playSound('explosion');
+    
+    // 火焰传播范围（上下左右各2格）
+    const directions = [
+      { dx: 0, dy: -1 }, // 上
+      { dx: 0, dy: 1 },  // 下
+      { dx: -1, dy: 0 }, // 左
+      { dx: 1, dy: 0 }   // 右
+    ];
+    
+    // 火焰长度
+    const flameLength = playerStats.flameLength;
+    
+    // 存储需要更新的敌人
+    const enemiesToRemove: {x: number, y: number}[] = [];
+    // 存储需要爆炸的其他炸弹
+    const bombsToExplode: {x: number, y: number}[] = [];
+    
+    // 处理火焰传播
+    directions.forEach(({ dx, dy }) => {
+      for (let i = 1; i <= flameLength; i++) {
+        const nx = x + dx * i;
+        const ny = y + dy * i;
+        
+        // 检查边界
+        if (nx < 0 || nx >= currentMap[0].length || ny < 0 || ny >= currentMap.length) {
+          break;
+        }
+        
+        const cell = currentMap[ny][nx];
+        
+        // 如果遇到墙壁，停止传播
+        if (cell === 'wall') {
+          break;
+        }
+        
+        // 破坏砖块
+        if (cell === 'block') {
+          newMap[ny][nx] = 'empty';
+          // 有一定概率生成道具
+          if (Math.random() < 0.3) {
+            newMap[ny][nx] = 'item';
+          }
+          break;
+        }
+        
+        // 清除敌人
+        if (cell === 'enemy') {
+          newMap[ny][nx] = 'empty';
+          enemiesToRemove.push({x: nx, y: ny});
+        }
+        
+        // 清除其他炸弹
+        if (cell === 'bomb') {
+          newMap[ny][nx] = 'empty';
+          bombsToExplode.push({x: nx, y: ny});
+        }
+      }
+    });
+    
+    // 更新地图
+    setMap(newMap);
+    
+    // 移除被消灭的敌人
+    if (enemiesToRemove.length > 0) {
+      setEnemies(prevEnemies => 
+        prevEnemies.filter(enemy => 
+          !enemiesToRemove.some(remove => remove.x === enemy.x && remove.y === enemy.y)
+        )
+      );
+    }
+    
+    // 触发其他炸弹爆炸
+    bombsToExplode.forEach(({x, y}) => {
+      setTimeout(() => {
+        explodeBomb(x, y);
+      }, 100);
+    });
+  };
+
+  // 放置炸弹
+  const placeBomb = () => {
+    const newMap = map.map(row => [...row]);
+    newMap[playerPosition.y][playerPosition.x] = 'bomb';
+    setMap(newMap);
+    
+    // 播放放置炸弹音效
+    audioManager.playSound('bomb');
+
+    // 保存爆炸位置到闭包中，避免使用过时的playerPosition
+    const explodeX = playerPosition.x;
+    const explodeY = playerPosition.y;
+    
+    // 3秒后爆炸
+    setTimeout(() => {
+      explodeBomb(explodeX, explodeY);
+    }, 3000);
+  };
 
   // 处理键盘输入
   useEffect(() => {
@@ -139,7 +244,7 @@ const GamePage: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [playerPosition, movePlayer, placeBomb]);
+  }, [playerPosition]);
 
   // 敌人AI移动
   useEffect(() => {
@@ -193,97 +298,6 @@ const GamePage: React.FC = () => {
     const interval = setInterval(moveEnemies, 1000);
     return () => clearInterval(interval);
   }, [map, navigate]);
-
-  // 炸弹爆炸
-  const explodeBomb = useCallback((x: number, y: number) => {
-    setMap(prevMap => {
-      const newMap = prevMap.map(row => [...row]);
-      // 清除炸弹
-      newMap[y][x] = 'empty';
-      
-      // 播放爆炸音效
-      audioManager.playSound('explosion');
-      
-      // 火焰传播范围（上下左右各2格）
-      const directions = [
-        { dx: 0, dy: -1 }, // 上
-        { dx: 0, dy: 1 },  // 下
-        { dx: -1, dy: 0 }, // 左
-        { dx: 1, dy: 0 }   // 右
-      ];
-      
-      // 火焰长度
-      const flameLength = playerStats.flameLength;
-      
-      // 处理爆炸中心点
-      // 处理火焰传播
-      directions.forEach(({ dx, dy }) => {
-        for (let i = 1; i <= flameLength; i++) {
-          const nx = x + dx * i;
-          const ny = y + dy * i;
-          
-          // 检查边界
-          if (nx < 0 || nx >= prevMap[0].length || ny < 0 || ny >= prevMap.length) {
-            break;
-          }
-          
-          const cell = prevMap[ny][nx];
-          
-          // 如果遇到墙壁，停止传播
-          if (cell === 'wall') {
-            break;
-          }
-          
-          // 破坏砖块
-          if (cell === 'block') {
-            newMap[ny][nx] = 'empty';
-            // 有一定概率生成道具
-            if (Math.random() < 0.3) {
-              newMap[ny][nx] = 'item';
-            }
-            break;
-          }
-          
-          // 清除敌人
-          if (cell === 'enemy') {
-            newMap[ny][nx] = 'empty';
-            // 从敌人数组中移除被消灭的敌人
-            setEnemies(prevEnemies => prevEnemies.filter(enemy => !(enemy.x === nx && enemy.y === ny)));
-          }
-          
-          // 清除其他炸弹
-          if (cell === 'bomb') {
-            newMap[ny][nx] = 'empty';
-            // 递归触发其他炸弹爆炸
-            setTimeout(() => {
-              explodeBomb(nx, ny);
-            }, 100);
-          }
-        }
-      });
-      
-      return newMap;
-    });
-  }, [playerStats.flameLength]);
-
-  // 放置炸弹
-  const placeBomb = useCallback(() => {
-    const newMap = map.map(row => [...row]);
-    newMap[playerPosition.y][playerPosition.x] = 'bomb';
-    setMap(newMap);
-    
-    // 播放放置炸弹音效
-    audioManager.playSound('bomb');
-
-    // 保存爆炸位置到闭包中，避免使用过时的playerPosition
-    const explodeX = playerPosition.x;
-    const explodeY = playerPosition.y;
-    
-    // 3秒后爆炸
-    setTimeout(() => {
-      explodeBomb(explodeX, explodeY);
-    }, 3000);
-  }, [map, playerPosition, explodeBomb]);
 
   // 处理触摸控制
   const handleTouchMove = (direction: 'up' | 'down' | 'left' | 'right') => {
